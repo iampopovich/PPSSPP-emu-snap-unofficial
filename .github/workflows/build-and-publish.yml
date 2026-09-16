@@ -3,7 +3,7 @@ name: Build and publish snap
 on:
   schedule:
     # Every 12 hours - check for new PPSSPP upstream tags
-    - cron: '0 */12 * * *'
+    - cron: '0 */23 * * *'
   workflow_dispatch: {}
   push:
     branches: [main]
