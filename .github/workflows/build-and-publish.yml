@@ -1,0 +1,90 @@
+name: Build and publish snap
+
+on:
+  schedule:
+    # Every 12 hours - check for new PPSSPP upstream tags
+    - cron: '0 */12 * * *'
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - snapcraft.yaml
+      - .github/workflows/build-and-publish.yml
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.check.outputs.new_version }}
+      upstream_tag: ${{ steps.check.outputs.upstream_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare upstream tag with snapcraft.yaml version
+        id: check
+        run: |
+          set -euo pipefail
+          # Latest vX.Y.Z tag on the official PPSSPP repo (skip dereferenced ^{} lines)
+          UPSTREAM_TAG=$(git ls-remote --tags --sort=-v:refname https://github.com/hrydgard/ppsspp.git \
+            | awk '{print $2}' | grep -v '\^{}' | sed 's#refs/tags/##' | grep -E '^v[0-9]+\.[0-9]+(\.[0-9]+)?$' | head -1)
+          echo "Upstream tag: $UPSTREAM_TAG"
+
+          # Version currently pinned in snapcraft.yaml (source-tag: v$SNAPCRAFT_PROJECT_VERSION)
+          CURRENT_VERSION="v$(grep -oP "^version:\s*'\K[^']+" snapcraft.yaml)"
+          echo "Current pinned version (with v prefix): $CURRENT_VERSION"
+
+          if [ "$UPSTREAM_TAG" != "$CURRENT_VERSION" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "push" ]; then
+            echo "new_version=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "new_version=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Report new upstream tag (no auto-bump)
+        if: steps.check.outputs.new_version == 'true'
+        run: |
+          echo "::notice::Upstream PPSSPP tag ${{ steps.check.outputs.upstream_tag }} differs from the version pinned in snapcraft.yaml. Update the 'version:' field manually before this workflow will build it."
+
+  build-and-publish:
+    needs: check-upstream
+    if: needs.check-upstream.outputs.new_version == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install snapcraft
+        run: sudo snap install snapcraft --classic
+
+      - name: Build snap (${{ matrix.arch }})
+        uses: snapcore/action-build@v1
+        id: build
+        with:
+          path: .
+        env:
+          SNAPCRAFT_BUILD_ENVIRONMENT: lxd
+          SNAPCRAFT_BUILD_ENVIRONMENT_MEMORY: 4G
+
+      - name: Publish to edge first
+        uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: edge
+
+  promote-to-stable:
+    needs: [check-upstream, build-and-publish]
+    runs-on: ubuntu-latest
+    if: needs.check-upstream.outputs.new_version == 'true'
+    steps:
+      - name: Install snapcraft
+        run: sudo snap install snapcraft --classic
+
+      - name: Promote edge to stable
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        run: |
+          snapcraft promote ppsspp-fresh --from-channel=edge --to-channel=stable --yes

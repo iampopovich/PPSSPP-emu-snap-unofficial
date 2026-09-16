@@ -1,4 +1,4 @@
-name: ppsspp-emulator
+name: ppsspp-fresh
 base: core24
 version: '1.20.3'
 platforms:
@@ -14,7 +14,7 @@ confinement: strict
 icon: ppsspp.svg
 
 apps:
-  ppsspp-emulator:
+  ppsspp-fresh:
     command: usr/bin/PPSSPPSDL
     desktop: usr/share/applications/PPSSPPSDL.desktop
     common-id: org.ppsspp.PPSSPP
@@ -67,7 +67,7 @@ parts:
       - -DOpenGL_GL_PREFERENCE=GLVND
     override-build: |
       craftctl default
-      sed -i 's|Name=PPSSPPSDL|Name=PPSSPP [Kyu]|' $CRAFT_PART_INSTALL/usr/share/applications/PPSSPPSDL.desktop
+      sed -i 's|Name=PPSSPPSDL|Name=PPSSPP Fresh|' $CRAFT_PART_INSTALL/usr/share/applications/PPSSPPSDL.desktop
 
   zenity:
     after: [ppsspp]
